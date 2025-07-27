@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -11,12 +12,11 @@ class MakingDecisions extends StatefulWidget {
 
 class MakingDecisionsState extends State<MakingDecisions> {
   List<String> options = [];
-  List<bool> visible = [];
-  TextEditingController optionsController = TextEditingController();
   String decisionMade = "";
   bool decisionClicked = false;
   late int randomIndex;
   List<FocusNode> focusNodes = [];
+  List<TextEditingController> controllers = [];
 
   ChooseRandom(List list) {
     final random = Random();
@@ -25,24 +25,35 @@ class MakingDecisionsState extends State<MakingDecisions> {
   }
 
   void decision() {
+    options.removeWhere((item) => [''].contains(item));
     String randomOption = ChooseRandom(options);
     setState(() {
       decisionMade = randomOption;
       decisionClicked = true;
     });
-    options.clear();
     Navigator.pop(context);
+  }
+
+  @override
+  void dispose() {
+    for (var node in focusNodes) {
+      node.dispose();
+    }
+    for (var controller in controllers) {
+      controller.dispose();
+    }
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      floatingActionButton: IconButton(
+      floatingActionButton: IconButton.filled(
         onPressed: () async {
-          if (options.isEmpty) {
-            options.insert(0, "");
-            visible.insert(0, true);
-          }
+          controllers.clear();
+          controllers.insert(0, TextEditingController());
+          options.clear();
+          options.insert(0, "");
           await showModalBottomSheet(
             isScrollControlled: true,
             showDragHandle: true,
@@ -69,17 +80,20 @@ class MakingDecisionsState extends State<MakingDecisions> {
                                 }
                                 return ListTile(
                                   title: TextField(
+                                    controller: controllers[index],
                                     focusNode: focusNodes[index],
                                     autofocus: index == options.length - 1,
                                     onSubmitted: (value) {
                                       FocusScope.of(context).nextFocus();
                                       setModalState(() {
                                         options.insert((index + 1), "");
-                                        visible.insert((index + 1), true);
-                                        visible[index] = false;
                                         focusNodes.insert(
                                           (index + 1),
                                           FocusNode(),
+                                        );
+                                        controllers.insert(
+                                          index + 1,
+                                          TextEditingController(),
                                         );
                                       });
                                       WidgetsBinding.instance
@@ -93,33 +107,26 @@ class MakingDecisionsState extends State<MakingDecisions> {
                                     },
                                     decoration: InputDecoration(
                                       label: Text("Option ${index + 1}"),
-                                      suffix: visible[index]
-                                          ? IconButton(
-                                              onPressed: () {
-                                                setModalState(() {
-                                                  options.insert(
-                                                    (index + 1),
-                                                    "",
-                                                  );
-                                                  visible.insert(
-                                                    (index + 1),
-                                                    true,
-                                                  );
-                                                  visible[index] = false;
-                                                  focusNodes.insert(
-                                                    (index + 1),
-                                                    FocusNode(),
-                                                  );
+                                      suffix: IconButton(
+                                        onPressed: () {
+                                          setModalState(() {
+                                            if (options.length > 1) {
+                                              options.removeAt(index);
+                                              controllers.removeAt(index);
+                                              focusNodes.removeAt((index));
+                                            }
+                                          });
+                                          if (index > 0 &&
+                                              focusNodes.length > index - 1) {
+                                            WidgetsBinding.instance
+                                                .addPostFrameCallback((_) {
+                                                  focusNodes[index - 1]
+                                                      .requestFocus();
                                                 });
-                                                WidgetsBinding.instance
-                                                    .addPostFrameCallback((_) {
-                                                      focusNodes[index + 1]
-                                                          .requestFocus();
-                                                    });
-                                              },
-                                              icon: Icon(Icons.add),
-                                            )
-                                          : SizedBox.shrink(),
+                                          }
+                                        },
+                                        icon: Icon(Icons.delete),
+                                      ),
                                     ),
                                   ),
                                 );
@@ -130,7 +137,22 @@ class MakingDecisionsState extends State<MakingDecisions> {
                             onPressed: () {
                               decision();
                             },
-                            child: const Text("Make Decision!"),
+                            child: Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(20),
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+
+                              child: const Text(
+                                "Make Decision!",
+                                style: TextStyle(color: Colors.black),
+                              ),
+                            ),
                           ),
                           Spacer(),
                         ],
@@ -141,7 +163,6 @@ class MakingDecisionsState extends State<MakingDecisions> {
               );
             },
           ).whenComplete(() {
-            options.clear();
             for (var node in focusNodes) {
               node.dispose();
             }
@@ -158,9 +179,146 @@ class MakingDecisionsState extends State<MakingDecisions> {
           children: [
             Container(
               alignment: AlignmentDirectional.center,
-              child: Text(
-                "🎉 $decisionMade 🎉",
-                style: TextStyle(fontSize: 42),
+              child: TextButton(
+                onPressed: () {
+                  showModalBottomSheet(
+                    isScrollControlled: true,
+                    showDragHandle: true,
+                    context: context,
+                    builder: (BuildContext context) {
+                      for (var option in options) {
+                        focusNodes.add(FocusNode());
+                        controllers.add(TextEditingController(text: option));
+                      }
+
+                      return StatefulBuilder(
+                        builder: (BuildContext context, StateSetter setModalState) {
+                          return Padding(
+                            padding: EdgeInsets.only(
+                              bottom: MediaQuery.of(context).viewInsets.bottom,
+                            ),
+                            child: SizedBox(
+                              height: 500,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Expanded(
+                                    flex: 5,
+                                    child: ListView.builder(
+                                      itemCount: options.length,
+                                      itemBuilder: (context, index) {
+                                        while (focusNodes.length <= index) {
+                                          focusNodes.add(FocusNode());
+                                        }
+                                        return ListTile(
+                                          title: TextField(
+                                            controller: controllers[index],
+                                            focusNode: focusNodes[index],
+                                            autofocus:
+                                                index == options.length - 1,
+                                            onSubmitted: (value) {
+                                              FocusScope.of(
+                                                context,
+                                              ).nextFocus();
+                                              setModalState(() {
+                                                options.insert((index + 1), "");
+                                                focusNodes.insert(
+                                                  (index + 1),
+                                                  FocusNode(),
+                                                );
+                                                controllers.insert(
+                                                  index + 1,
+                                                  TextEditingController(),
+                                                );
+                                              });
+                                              WidgetsBinding.instance
+                                                  .addPostFrameCallback((_) {
+                                                    focusNodes[index + 1]
+                                                        .requestFocus();
+                                                  });
+                                            },
+                                            onChanged: (value) {
+                                              options[index] = value;
+                                            },
+                                            decoration: InputDecoration(
+                                              label: Text(
+                                                "Option ${index + 1}",
+                                              ),
+                                              suffix: IconButton(
+                                                onPressed: () {
+                                                  setModalState(() {
+                                                    if (options.length > 1) {
+                                                      options.removeAt(index);
+                                                      controllers.removeAt(
+                                                        index,
+                                                      );
+                                                      focusNodes.removeAt(
+                                                        (index),
+                                                      );
+                                                    }
+                                                  });
+                                                  if (index > 0 &&
+                                                      focusNodes.length >
+                                                          index - 1) {
+                                                    WidgetsBinding.instance
+                                                        .addPostFrameCallback((
+                                                          _,
+                                                        ) {
+                                                          focusNodes[index - 1]
+                                                              .requestFocus();
+                                                        });
+                                                  }
+                                                },
+                                                icon: Icon(Icons.delete),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: () {
+                                      decision();
+                                    },
+                                    child: Container(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 6,
+                                      ),
+
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(20),
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                      ),
+
+                                      child: const Text(
+                                        "Make Decision!",
+                                        style: TextStyle(color: Colors.black),
+                                      ),
+                                    ),
+                                  ),
+                                  Spacer(),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ).whenComplete(() {
+                    for (var node in focusNodes) {
+                      node.dispose();
+                    }
+                    focusNodes.clear();
+                  });
+                },
+                child: Text(
+                  "🎉 $decisionMade 🎉",
+                  style: TextStyle(fontSize: 42),
+                ),
               ),
             ),
           ],
